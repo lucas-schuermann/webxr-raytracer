@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-        <title>WebXR VR Black Hole | Lucas V. Schuermann</title>
+        <title>Virtual Reality Black Hole | Lucas V. Schuermann</title>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
         <style>
             body {
                 margin: 0;
@@ -19,8 +19,13 @@
                 color: #ff0;
                 text-decoration: none;
             }
+
             a:hover {
                 text-decoration: underline;
+            }
+
+            canvas {
+                display: block;
             }
 
             #info {
@@ -42,19 +47,19 @@
                 pointer-events: auto;
             }
 
-            #canvas {
-                width: 100vw;
-                height: 100vh;
-                display: block;
+            .dg.ac {
+                -moz-user-select: none;
+                -webkit-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+                z-index: 2 !important; /* TODO Solve this in HTML */
             }
         </style>
     </head>
     <body>
         <div id="info">
-            <a href="/index.html" target="_blank" rel="noopener">Lucas V. Schuermann</a> webxr vr - black hole
+            <a href="/index.html" target="_blank" rel="noopener">Lucas V. Schuermann</a> WebXR Virtual Reality - Schwarzchild Black Hole Simulation
         </div>
-
-        <canvas id="canvas"></canvas>
 
         <script id="fragment-shader" type="x-shader/x-fragment">
             // inspired by https://www.shadertoy.com/view/tsBXW3
@@ -291,21 +296,31 @@
         </script>
 
         <script type="module">
-            import * as THREE from '../build/three.module.js';
-            import Stats from './jsm/libs/stats.module.js';
-            import { GUI } from './jsm/libs/dat.gui.module.js';
-            import { OrbitControls } from './jsm/controls/OrbitControls.js';
-            import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
+            import * as THREE from '../js/three.module.js';
+            import Stats from './js/libs/stats.module.js';
+            import { GUI } from './js/libs/dat.gui.module.js';
+            import { VRButton } from './js/webxr/VRButton.js';
 
-            const canvas = document.querySelector('#canvas');
-            const renderer = new THREE.WebGLRenderer({canvas});
+            const renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.autoClearColor = false;
-            document.body.appendChild(VRButton.createButton(renderer));
             renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType( 'local' );
+            document.body.appendChild(renderer.domElement);
+            document.body.appendChild(VRButton.createButton(renderer));
 
-            const camera = new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
+            const stats = new Stats();
+            document.body.appendChild(stats.dom);
+
+            var params = {
+                test: true,
+            };
+            var gui = new GUI();
+            gui.add(params, 'test');
+
+            const camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 2000 );
+            camera.layers.enable( 1 ); // render left view when no stereo available
             const scene = new THREE.Scene();
-            const plane = new THREE.PlaneBufferGeometry(2, 2);
 
             const loader = new THREE.TextureLoader();
             const texture = loader.load('./stars.jpg');
@@ -316,39 +331,57 @@
 
             const fragmentShader = document.getElementById('fragment-shader').textContent;
             const uniforms = {
-                iResolution:  { value: new THREE.Vector3() },
-                iTime: { value: 0 },
-                iMouse: { value: new THREE.Vector4() },
-                iChannel0: { value: texture },
+                iResolution:  {value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1)},
+                iTime: {value: 0},
+                iMouse: {value: new THREE.Vector4()},
+                iChannel0: {value: texture},
             };
             const material = new THREE.ShaderMaterial({
                 fragmentShader,
                 uniforms,
             });
-            scene.add(new THREE.Mesh(plane, material));
 
-            const resizeRendererToDisplaySize = (renderer) => {
-                const canvas = renderer.domElement;
-                const width = canvas.clientWidth;
-                const height = canvas.clientHeight;
-                if (canvas.width !== width || canvas.height !== height) {
-                    renderer.setSize(width, height, false);
-                }
+            // left
+            var geometry = new THREE.SphereBufferGeometry( 500, 60, 40 );
+            // invert the geometry on the x-axis so that all of the faces point inward
+            geometry.scale( - 1, 1, 1 );
+            var uvs = geometry.attributes.uv.array;
+            for ( var i = 0; i < uvs.length; i += 2 ) {
+                uvs[ i ] *= 0.5;
             }
+            var mesh = new THREE.Mesh( geometry, material );
+            mesh.rotation.y = - Math.PI / 2;
+            mesh.layers.set( 1 ); // display in left eye only
+            scene.add( mesh );
+            // right
+            var geometry = new THREE.SphereBufferGeometry( 500, 60, 40 );
+            geometry.scale( - 1, 1, 1 );
+            var uvs = geometry.attributes.uv.array;
+            for ( var i = 0; i < uvs.length; i += 2 ) {
+                uvs[ i ] *= 0.5;
+                uvs[ i ] += 0.5;
+            }
+            var mesh = new THREE.Mesh( geometry, material );
+            mesh.rotation.y = - Math.PI / 2;
+            mesh.layers.set( 2 ); // display in right eye only
+            scene.add( mesh );
+
+            const resizeRendererToDisplaySize = () => {
+                console.log(camera);
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                uniforms.iResolution.value.set(window.innerWidth, window.innerHeight, 1);
+            };
+
+            window.addEventListener('resize', resizeRendererToDisplaySize, false);
 
             renderer.setAnimationLoop((time) => {
-                // get values for inputs
                 time *= 0.001;  // convert to seconds
-                resizeRendererToDisplaySize(renderer);
-                const canvas = renderer.domElement;
-
-                // set inputs
-                uniforms.iResolution.value.set(canvas.width, canvas.height, 1);
                 uniforms.iTime.value = time;
 
                 // render
                 renderer.render(scene, camera);
-            }
+                stats.update();
+            });
         </script>
     </body>
 </html>
