@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Perlin | Lucas V. Schuermann</title>
+  <meta content='width=device-width, user-scalable=no' name='viewport'>
+  <style>
+    html {
+        height: 100%;
+    }
+    body {
+        min-height: 100%;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+        align-items: center;
+        user-select: none;
+        cursor: default;
+        font-weight: bold;
+        font-family: sans-serif;
+        line-height: 1.5em;
+        font-size: 3.5vw;
+    }
+    p {
+        margin: 0;
+        transition: color 2s;
+        color: rgba(255,255,255,0.1);
+        white-space: nowrap;
+    }
+    p:hover {
+        color: #fff;
+    }
+    @media screen and (max-width: 1000px) {
+        p {
+            color: #fff;
+        }
+    }
+    #perlin {
+        position: absolute;
+        left: 0;
+        top: 0;
+        z-index: -1;
+    }
+    #poem {
+        position: fixed;
+        top: 0;
+        z-index: 0;
+        height: 100%;
+        overflow-y: hidden;
+    }
+  </style>
+    <script id="fragment-shader" type="x-shader/x-fragment">
+      uniform vec2 iResolution;
+      uniform float iTime;
+
+      float rand (float x) {
+          return fract(sin(x) * 4358.5453123);
+      }
+      // http://stackoverflow.com/questions/4200224/random-noise-functions-for-glsl
+      float noise (vec2 co) {
+         return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      }
+
+      vec2 sw(vec2 p) { return vec2(floor(p.x), floor(p.y)); }
+      vec2 se(vec2 p) { return vec2(ceil(p.x), floor(p.y)); }
+      vec2 nw(vec2 p) { return vec2(floor(p.x), ceil(p.y)); }
+      vec2 ne(vec2 p) { return vec2(ceil(p.x), ceil(p.y)); }
+
+      float smoothNoise(vec2 p) {
+        vec2 interp = smoothstep(0., 1., fract(p));
+        float s = mix(noise(sw(p)), noise(se(p)), interp.x);
+        float n = mix(noise(nw(p)), noise(ne(p)), interp.x);
+        return mix(s, n, interp.y); 
+      }
+
+      float fractalNoise(vec2 p) {
+        float x = 0.;
+        x += smoothNoise(p      );
+        x += smoothNoise(p * 2. ) / 2.;
+        x += smoothNoise(p * 4. ) / 4.;
+        x /= 1. + 1./2. + 1./4.;
+        return x;       
+      }
+
+      float movingNoise(vec2 p) {
+        float x = fractalNoise(p + iTime);
+        float y = fractalNoise(p - iTime);
+        return fractalNoise(p + 0.5*vec2(x, y));   
+      }
+
+      float nestedNoise(vec2 p) {
+        float x = movingNoise(p);
+        float y = movingNoise(p + 100.);
+        return movingNoise(p + vec2(x, y));
+      }
+
+      void main()
+      {
+        vec2 uv = gl_FragCoord.xy / iResolution.xy;
+        float n = nestedNoise(uv * 6.);
+        float n2 = nestedNoise(uv * 6. + 0.02);
+        float bump = (n2*n2 - n*n)*3.;
+
+        vec3 col = mix(0.8*vec3(0.1, .05, 0.4), 0.8*vec3(.1, .7, 1.), n*sqrt(n)) + 0.8*vec3(1., 0.9, 0.7)*bump*bump;
+        gl_FragColor = vec4(col, 1.);
+      }
+  </script>
+  <script type="text/javascript">
+    "use strict";
+
+    // GL building blocks
+    var canvas, gl, program, buffer;
+
+    // Sent to shader each frame
+    var seed = Math.random();
+    var start_time = new Date().getTime();
+
+    // Default vertex shader to use if not defined by main program
+    var default_vertex_shader_source = "attribute vec3 position; void main() { gl_Position = vec4( position, 1.0 ); }";
+
+    // Setup WebGL and compile shaders/program
+    function init() {
+      var vertex_shader_source, fragment_shader_source;
+      var vertex_position;
+
+      vertex_shader_source = document.getElementById('vertex-shader');
+      vertex_shader_source = (vertex_shader_source && vertex_shader_source.textContent) || default_vertex_shader_source;
+
+      if (document.getElementById('fragment-shader') == null) {
+        throw "Fragment shader source must be in a <script> tag with id='fragment-shader'";
+      }
+      fragment_shader_source = document.getElementById('fragment-shader').textContent;
+
+      canvas = document.getElementById('perlin');
+      gl = canvas.getContext('experimental-webgl');
+      if (!gl) {
+        throw "Couldn't create WebGL context";
+      }
+
+      // Create Program
+      program = createProgram(vertex_shader_source, fragment_shader_source);
+      gl.useProgram(program);
+
+      // Create vertex buffer (2 triangles covering whole viewport)
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER,
+        new Float32Array([-1.0, -1.0,
+          1.0, -1.0, -1.0, 1.0,
+          1.0, -1.0,
+          1.0, 1.0, -1.0, 1.0
+        ]),
+        gl.STATIC_DRAW
+      );
+
+      vertex_position = gl.getAttribLocation(program, 'position');
+      gl.enableVertexAttribArray(vertex_position);
+      gl.vertexAttribPointer(vertex_position, 2, gl.FLOAT, false, 0, 0);
+
+      window.onresize = onWindowResize;
+      onWindowResize();
+
+      // Start animation loop
+      frame();
+    }
+
+    // Compile & link a WebGL program from provided vertex and shader source
+    function createProgram(vertex_shader_source, fragment_shader_source) {
+      var program = gl.createProgram();
+
+      var vertex_shader = createShader(vertex_shader_source, gl.VERTEX_SHADER);
+      var fragment_shader = createShader('#ifdef GL_ES\nprecision highp float;\n#endif\n\n' + fragment_shader_source, gl.FRAGMENT_SHADER);
+
+      if (vertex_shader == null || fragment_shader == null) {
+        return null;
+      }
+
+      gl.attachShader(program, vertex_shader);
+      gl.attachShader(program, fragment_shader);
+
+      gl.deleteShader(vertex_shader);
+      gl.deleteShader(fragment_shader);
+
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        var program_error =
+          "WebGL program error:\n" +
+          "VALIDATE_STATUS: " + gl.getProgramParameter(program, gl.VALIDATE_STATUS) + "\n" +
+          "ERROR: " + gl.getError() + "\n\n" +
+          "--- Vertex Shader ---\n" + vertex_shader_source + "\n\n" +
+          "--- Fragment Shader ---\n" + fragment_shader_source;
+        throw program_error;
+      }
+
+      return program;
+    }
+
+    // Compile a vertex or fragment shader from provided source
+    function createShader(source, type) {
+      var shader = gl.createShader(type);
+
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        var shader_error =
+          "WebGL shader error:\n" +
+          (type == gl.VERTEX_SHADER ? "VERTEX" : "FRAGMENT") + " SHADER:\n" +
+          gl.getShaderInfoLog(shader);
+        throw shader_error;
+      }
+
+      return shader;
+    }
+
+    // Resize WebGL viewport to window
+    function onWindowResize(event) {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    // Cross-browser compatibility for requestAnimationFrame
+    (function requestAnimationFrameCompatibility() {
+      if (window.requestAnimationFrame == undefined) {
+        window.requestAnimationFrame =
+          (function() {
+            return (
+              window.requestAnimationFrame ||
+              window.webkitRequestAnimationFrame ||
+              window.mozRequestAnimationFrame ||
+              window.oRequestAnimationFrame ||
+              window.msRequestAnimationFrame ||
+              function(callback) {
+                window.setTimeout(callback, 1000 / 60);
+              }
+            );
+          })();
+      }
+    }());
+
+    // Animation loop
+    function frame() {
+      render();
+      requestAnimationFrame(frame);
+    }
+
+    function render() {
+      if (!program) {
+        return;
+      }
+
+      // Set values to program variables
+      gl.uniform1f(gl.getUniformLocation(program, 'iSeed'), seed);
+      gl.uniform1f(gl.getUniformLocation(program, 'iTime'), ((new Date().getTime()) - start_time) / 1000);
+      gl.uniform2f(gl.getUniformLocation(program, 'iResolution'), canvas.width, canvas.height);
+
+      // Render geometry
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function mouse_wheel(evt) {
+      evt = evt || event;
+      var delta = 0;
+      if (evt.wheelDelta) {
+        delta = evt.wheelDelta / 120;
+      } else if (evt.detail) {
+        delta = -evt.detail / 3;
+      }
+      var poem = document.getElementById('poem');
+      poem.scrollTop -= delta * 12;
+      if (evt.preventDefault)
+        evt.preventDefault();
+    }
+
+    document.onmousewheel = mouse_wheel;
+    if (window.addEventListener) window.addEventListener('scroll', mouse_wheel, false);
+    if (window.addEventListener) window.addEventListener('touchmove', mouse_wheel, false);
+  </script>
+</head>
+<body onload="init()">
+  <canvas id="perlin"></canvas>
+  <div id='poem'>
+    <br>
+    <br>
+    <p>There can be no disgrace</p>
+    <p>For the true expression of Love</p>
+    <p>That without it, a man can be coarsened and degraded</p>
+    <p>In mind, body, and soul</p>
+    <br>
+    <p>Oh, I've searched it once</p>
+    <p>But there is no love anywhere</p>
+    <p>I cannot find love by searching for it</p>
+    <p>It comes to us unbiden</p>
+    <br>
+    <p>Then we give it to others</p>
+    <br>
+    <br>
+  </div>
+</body>
+</html>
