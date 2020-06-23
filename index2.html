@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1, user-scalable=no'>
+
+    <title>Barebones VR</title>
+  </head>
+  <body>
+    <header>
+      <details open>
+        <summary>Barebones VR</summary>
+        <p>
+          This sample demonstrates extremely simple use of an "immersive-vr"
+          session with no library dependencies. It doesn't render anything
+          exciting, just clears your headset's display to a slowly changing
+          color to prove it's working.
+          <a class="back" href="./">Back</a>
+        </p>
+        <button id="xr-button" class="barebones-button" disabled>XR not found</button>
+      </details>
+    </header>
+    <main style='text-align: center;'>
+      <p>Click 'Enter VR' to see content</p> 
+    </main>
+    <script>
+      (function () {
+      'use strict';
+
+           const matMulpoint = ( m, v ) =>
+            {
+                return [ m[0]*v[0] + m[1]*v[1] + m[ 2]*v[2] + m[ 3],
+                         m[4]*v[0] + m[5]*v[1] + m[ 6]*v[2] + m[ 7],
+                         m[8]*v[0] + m[9]*v[1] + m[10]*v[2] + m[11] ];
+            }
+
+
+      //////////////////////////////////////////////////
+
+      function loadShader(gl, shaderSource, shaderType, opt_errorCallback) {
+              const errFn = opt_errorCallback || function(err) { console.log(err) };
+              // Create the shader object
+              const shader = gl.createShader(shaderType);
+
+              // Load the shader source
+              gl.shaderSource(shader, shaderSource);
+
+              // Compile the shader
+              gl.compileShader(shader);
+
+              // Check the compile status
+              const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+              if (!compiled) {
+                // Something went wrong during compilation; get the error
+                const lastError = gl.getShaderInfoLog(shader);
+                errFn('*** Error compiling shader \'' + shader + '\':' + lastError);
+                gl.deleteShader(shader);
+                return null;
+              }
+
+              return shader;
+            }
+
+         function createProgram(
+                gl, shaders, opt_attribs, opt_locations, opt_errorCallback) {
+              const errFn = opt_errorCallback || function(err) { console.log(err) };
+              const program = gl.createProgram();
+              shaders.forEach(function(shader) {
+                gl.attachShader(program, shader);
+              });
+              if (opt_attribs) {
+                opt_attribs.forEach(function(attrib, ndx) {
+                  gl.bindAttribLocation(
+                      program,
+                      opt_locations ? opt_locations[ndx] : ndx,
+                      attrib);
+                });
+              }
+              gl.linkProgram(program);
+
+              // Check the link status
+              const linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+              if (!linked) {
+                  // something went wrong with the link
+                  const lastError = gl.getProgramInfoLog(program);
+                  errFn('Error in program linking:' + lastError);
+
+                  gl.deleteProgram(program);
+                  return null;
+              }
+              return program;
+            }
+
+        const defaultShaderType = [
+            'VERTEX_SHADER',
+            'FRAGMENT_SHADER',
+          ];
+
+        function createProgramFromSources(
+            gl, shaderSources, opt_attribs, opt_locations, opt_errorCallback) {
+          const shaders = [];
+          for (let ii = 0; ii < shaderSources.length; ++ii) {
+            shaders.push(loadShader(
+                gl, shaderSources[ii], gl[defaultShaderType[ii]], opt_errorCallback));
+          }
+          return createProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback);
+        }
+    /////////////////////////////////////////////////////////////
+
+      // XR globals.
+      let xrButton = document.getElementById('xr-button');
+      let xrSession = null;
+      let xrRefSpace = null;
+
+      // WebGL scene globals.
+      let gl = null;
+
+       const vs = `#version 300 es
+
+precision highp float;
+precision highp int;
+
+layout(location = 0) in vec2 pos; void main() { gl_Position = vec4(pos.xy,0.0,1.0); }
+        `;
+
+        const fs = `#version 300 es
+
+precision highp float;
+precision highp int;
+
+// user
+uniform vec2 uResolution;
+uniform float uTime;
+
+// draw
+uniform vec4 uViewport;
+uniform vec3 uCorners[5];
+
+
+// Created by David Gallardo - xjorma/2020
+// License Creative Commons Attribution-NonCommercial-ShareAlike 3.0
+
+
+const float layerThickness  = 0.02;
+const int nbLayers    = 7;
+
+
+float sdTorus( vec3 p, vec2 t )
+{
+    return length( vec2(length(p.xz)-t.x,p.y) )-t.y;
+}
+
+
+float saturate(float c)
+{
+    return clamp(c,0.,1.);
+}
+
+
+vec2 minVecSelect(vec2 a, vec2 b)
+{
+    return a.x<b.x?a:b;
+}
+
+float hash( float n )
+{
+    return fract(sin(n)*43758.5453);
+}
+
+float noise( in vec3 x )
+{
+    vec3 p = floor(x);
+    vec3 f = fract(x);
+
+    f = f*f*(3.0-2.0*f);
+
+    float n = p.x + p.y*57.0 + 113.0*p.z;
+
+    float res = mix(mix(mix( hash(n+  0.0), hash(n+  1.0),f.x),
+                        mix( hash(n+ 57.0), hash(n+ 58.0),f.x),f.y),
+                    mix(mix( hash(n+113.0), hash(n+114.0),f.x),
+                        mix( hash(n+170.0), hash(n+171.0),f.x),f.y),f.z);
+    return res;
+}
+
+vec2 map(in vec3 p)
+{
+    float slide = uTime / 1.;
+    float fr = fract(slide);
+    int   fl = int(floor(slide));    
+    vec2  vd = vec2(100., -1.);
+    float cnoise = noise(p * 2. + uTime / 8.) / 3.;
+    for( int i = 0; i < nbLayers; i++)
+    {
+        float m = mod(float(i + fl), float(nbLayers));
+        float r = 0.6 - m * layerThickness + ( 1. - fr) * layerThickness;
+        float d = sdTorus( p, vec2(1, r)) ;
+        d = abs(d) - layerThickness / 2.;
+        float o =  - 4. * fract( (uTime + float(i)) / float(nbLayers));
+    d = max(d, 1.5 + p.x  + o + cnoise);
+    vd = minVecSelect(vec2(d, float(i)), vd);        
+    }   
+    return vd;
+}
+
+
+vec3 calcNormal(vec3 p)
+{
+    const float h = 0.001;
+    const vec2 k = vec2(1,-1);
+    return normalize( k.xyy * map(p + k.xyy*h).x + 
+                      k.yyx * map(p + k.yyx*h).x + 
+                      k.yxy * map(p + k.yxy*h).x + 
+                      k.xxx * map(p + k.xxx*h).x );
+}
+
+// From IQ
+float calcAO( in vec3 pos, in vec3 nor )
+{
+  float occ = 0.0;
+    float sca = 1.0;
+    for( int i=0; i<5; i++ )
+    {
+        float hr = 0.01 + 0.12*float(i)/12.0;
+        vec3 aopos =  nor * hr + pos;
+        float dd = map( aopos ).x;
+        occ += -(dd-hr)*sca;
+        sca *= 0.95;
+    }
+    return saturate(1.0 - 4. * occ);    
+}
+
+
+vec3 Render(vec3 ro,vec3 rd,vec3 cd,float dist)
+{
+    float t = 0.5;
+    float d;
+    float m = 0.;
+    for( int i=0; i<1024; i++ )
+    {
+        vec3  p = ro + t*rd;
+        vec2  h = map(p);
+        t += h.x*0.7;
+        d = dot(t*rd,cd);
+        m = h.y;
+        if( abs(h.x)<0.0001 || d>dist ) break;
+    }
+
+    vec3 col = vec3(0.3);
+
+    if( d<dist )
+    {
+        vec3 light = vec3(0.,4.,2.);
+        vec3 p = ro + t*rd;
+        vec3 n = calcNormal(p);
+        vec3 v = normalize(ro-p);
+        vec3 l = normalize(light-p);
+        vec3 h = normalize(l+v);
+        
+        vec3 diffcol = normalize(vec3(1. + sin(m * 0.7 + 1.3) / 2., 1. + sin(m * 1.3 + 4.45) / 2., 1. + sin(m * 1.9 + 2.3) / 2.)); 
+        vec3 speccol = vec3(1.,1.,1.);
+        vec3 ambcol = diffcol;
+    float ao = calcAO(p, n);
+        
+        col = saturate(dot(n,l)) * diffcol;
+        col+= pow(saturate(dot(n,h)),40.) * speccol * 0.5;
+        col+= 0.2 * ambcol;
+        col*= ao;
+    }
+    return col;
+}
+
+void mainVR( out vec4 fragColor, in vec2 fragCoord, in vec3 ro, in vec3 rd )
+{
+    fragColor = vec4(Render(ro/3. + vec3(0.0,.0,4.0),rd ,rd,14.) ,1);
+}
+
+out vec4 outColor;
+void main( void ){
+  vec4 color = vec4(0.0,0.0,0.0,1.0);
+  vec3 ro = uCorners[4];
+  vec2 uv = (gl_FragCoord.xy - uViewport.xy)/uViewport.zw;vec3 rd = normalize( mix( mix( uCorners[0], uCorners[1], uv.x ),mix( uCorners[3], uCorners[2], uv.x ), uv.y ) - ro);
+  mainVR( color, gl_FragCoord.xy-uViewport.xy, ro, rd );
+  color.w = 1.0;
+  outColor = color;
+}
+  `;
+
+        let program = null;
+        let positionAttributeLocation = null;
+        let resolutionLocation = null;
+        let timeLocation = null;
+        let cornersLocation = null;
+        let viewportLocation = null;
+        let positionBuffer = null;
+        let vertexBufferQuad = null;
+
+
+      // Checks to see if WebXR is available and, if so, requests an XRDevice
+      // that is connected to the system and tests it to ensure it supports the
+      // desired session options.
+      function initXR() {
+        // Is WebXR available on this UA?
+        if (navigator.xr) {
+          // If the device allows creation of exclusive sessions set it as the
+          // target of the 'Enter XR' button.
+          navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+            if (supported) {
+              // Updates the button to start an XR session when clicked.
+              xrButton.addEventListener('click', onButtonClicked);
+              xrButton.textContent = 'Enter VR';
+              xrButton.disabled = false;
+            }
+          });
+        }
+      }
+
+      // Called when the user clicks the button to enter XR. If we don't have a
+      // session we'll request one, and if we do have a session we'll end it.
+      function onButtonClicked() {
+        if (!xrSession) {
+          navigator.xr.requestSession('immersive-vr').then(onSessionStarted);
+        } else {
+          xrSession.end();
+        }
+      }
+
+      // Called when we've successfully acquired a XRSession. In response we
+      // will set up the necessary session state and kick off the frame loop.
+      function onSessionStarted(session) {
+        xrSession = session;
+        xrButton.textContent = 'Exit VR';
+
+        // Listen for the sessions 'end' event so we can respond if the user
+        // or UA ends the session for any reason.
+        session.addEventListener('end', onSessionEnded);
+
+        // Create a WebGL context to render with, initialized to be compatible
+        // with the XRDisplay we're presenting to.
+        let canvas = document.createElement('canvas');
+        gl = canvas.getContext('webgl2', { xrCompatible: true });
+
+         // setup GLSL program
+        program = createProgramFromSources(gl, [vs, fs]);
+
+        // look up where the vertex data needs to go.
+        positionAttributeLocation = gl.getAttribLocation(program, "pos");
+
+        // look up uniform locations
+        resolutionLocation = gl.getUniformLocation(program, "uResolution");
+        timeLocation = gl.getUniformLocation(program, "uTime");
+        cornersLocation = gl.getUniformLocation(program, "uCorners");
+        viewportLocation = gl.getUniformLocation(program, "uViewport");
+
+        // Create a buffer to put three 2d clip space points in
+        positionBuffer = gl.createBuffer();
+
+        // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+        // create a 2D quad Vertex Buffer
+        const vertices = new Float32Array( [ -1.0, -1.0,   1.0, -1.0,    -1.0,  1.0,     1.0, -1.0,    1.0,  1.0,    -1.0,  1.0] );
+        vertexBufferQuad = gl.createBuffer();
+        gl.bindBuffer( gl.ARRAY_BUFFER, vertexBufferQuad );
+        gl.bufferData( gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW );
+        gl.bindBuffer( gl.ARRAY_BUFFER, null );
+
+        // Use the new WebGL context to create a XRWebGLLayer and set it as the
+        // sessions baseLayer. This allows any content rendered to the layer to
+        // be displayed on the XRDevice.
+        session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+
+        // Get a reference space, which is required for querying poses. In this
+        // case an 'local' reference space means that all poses will be relative
+        // to the location where the XRDevice was first detected.
+        session.requestReferenceSpace('local').then((refSpace) => {
+          xrRefSpace = refSpace;
+
+          // Inform the session that we're ready to begin drawing.
+          session.requestAnimationFrame(onXRFrame);
+        });
+      }
+
+      // Called either when the user has explicitly ended the session by calling
+      // session.end() or when the UA has ended the session for any reason.
+      // At this point the session object is no longer usable and should be
+      // discarded.
+      function onSessionEnded(event) {
+        xrSession = null;
+        xrButton.textContent = 'Enter VR';
+
+        // In this simple case discard the WebGL context too, since we're not
+        // rendering anything else to the screen with it.
+        gl = null;
+      }
+
+      // Called every time the XRSession requests that a new frame be drawn.
+      function onXRFrame(time, frame) {
+        let session = frame.session;
+
+        // Inform the session that we're ready for the next frame.
+        session.requestAnimationFrame(onXRFrame);
+
+        // Get the XRDevice pose relative to the reference space we created
+        // earlier.
+        let pose = frame.getViewerPose(xrRefSpace);
+        if(!pose) {
+          return;
+        }
+
+        // Getting the pose may fail if, for example, tracking is lost. So we
+        // have to check to make sure that we got a valid pose before attempting
+        // to render with it. If not in this case we'll just leave the
+        // framebuffer cleared, so tracking loss means the scene will simply
+        // disappear.
+        let glLayer = session.renderState.baseLayer;
+
+        // If we do have a valid pose, bind the WebGL layer's framebuffer,
+        // which is where any content to be displayed on the XRDevice must be
+        // rendered.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+
+        // Tell it to use our program (pair of shaders)
+        gl.useProgram(program);
+
+        time *= 0.001;  // convert to seconds
+
+        for (let view of pose.views) {
+          let viewport = glLayer.getViewport(view);
+          // Draw a scene using view.projectionMatrix as the projection matrix
+          // and view.transform to position the virtual camera. If you need a
+          // view matrix, use view.transform.inverse.matrix.
+
+            // compute viewport
+            const vp = [viewport.x, viewport.y, viewport.width, viewport.height];
+            gl.viewport(...vp);
+
+            // compute proj
+            const proj = view.projectionMatrix;
+            // compute view
+            const camera = view.transform.inverse.matrix;
+
+            // apply projection
+            /*let corA = [ -fov[2], -fov[1], -1.0 ];
+            let corB = [  fov[3], -fov[1], -1.0 ];
+            let corC = [  fov[3],  fov[0], -1.0 ];
+            let corD = [ -fov[2],  fov[0], -1.0 ];
+            */
+            const fov = Math.abs(Math.atan(1.0/proj[5])*2);
+            console.log(proj);
+            console.log(fov*180.0/3.14159265358979);
+            let corA = [ -fov, -fov, -1.0 ];
+            let corB = [  fov, -fov, -1.0 ];
+            let corC = [  fov,  fov, -1.0 ];
+            let corD = [ -fov,  fov, -1.0 ];
+            let apex = [ 0.0, 0.0, 0.0 ];
+
+            // apply view
+            corA = matMulpoint(camera,corA);
+            corB = matMulpoint(camera,corB);
+            corC = matMulpoint(camera,corC);
+            corD = matMulpoint(camera,corD);
+            apex = matMulpoint(camera,apex);
+
+            // compute corners
+            const corners = [ corA[0], corA[1], corA[2], 
+                              corB[0], corB[1], corB[2], 
+                              corC[0], corC[1], corC[2], 
+                              corD[0], corD[1], corD[2],
+                              apex[0], apex[1], apex[2]];
+
+            // provide to shader
+            gl.uniform2f(resolutionLocation, glLayer.framebufferWidth, glLayer.framebufferHeight);
+            gl.uniform1f(timeLocation, time);
+            gl.uniform3fv(cornersLocation, corners);
+            gl.uniform4fv(viewportLocation, vp);
+
+            
+            // draw a unit quad in XY space
+            gl.bindBuffer( gl.ARRAY_BUFFER, vertexBufferQuad );
+            gl.vertexAttribPointer( positionAttributeLocation, 2, gl.FLOAT, false, 0, 0 );
+            gl.enableVertexAttribArray( positionAttributeLocation );
+            gl.drawArrays( gl.TRIANGLES, 0, 6 );
+            gl.disableVertexAttribArray( positionAttributeLocation );
+            gl.bindBuffer( gl.ARRAY_BUFFER, null );
+
+          }
+      }
+
+      // Start the XR application.
+      initXR();
+
+    })();
+    </script>
+  </body>
+</html>
