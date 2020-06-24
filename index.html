@@ -1,177 +1,241 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>A-Frame Raytrace Component - Basic</title>
-    <meta name="description" content="Basic example for Raytrace component."></meta>
-    <script src="https://aframe.io/releases/1.0.3/aframe.min.js"></script>
-    <script src="aframe-raytrace-component.js"></script>
-  </head>
-  <body>
+<html lang="en">
+    <head>
+        <title>Virtual Reality Black Hole | Lucas V. Schuermann</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <style>
+            body {
+                margin: 0;
+                background-color: #000;
+                color: #fff;
+                font-family: Monospace;
+                font-size: 13px;
+                line-height: 24px;
+                overscroll-behavior: none;
+            }
 
-    <script id="fs" type="x-shader/x-fragment">
-       precision mediump float;
+            a {
+                color: #ff0;
+                text-decoration: none;
+            }
+
+            a:hover {
+                text-decoration: underline;
+            }
+
+            canvas {
+                display: block;
+            }
+
+            #info {
+                position: absolute;
+                top: 0px;
+                width: 100%;
+                padding: 10px;
+                box-sizing: border-box;
+                text-align: center;
+                -moz-user-select: none;
+                -webkit-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+                pointer-events: none;
+                z-index: 1; /* TODO Solve this in HTML */
+            }
+
+            a, button, input, select {
+                pointer-events: auto;
+            }
+
+            .dg.ac {
+                -moz-user-select: none;
+                -webkit-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+                z-index: 2 !important; /* TODO Solve this in HTML */
+            }
+        </style>
+    </head>
+    <body>
+        <div id="info">
+            <a href="/index.html" target="_blank" rel="noopener">Lucas V. Schuermann</a> WebXR Virtual Reality - Schwarzchild Black Hole Simulation
+        </div>
+
+        <script id="vertex-shader" type="x-shader/x-vertex">
+            precision mediump float;
+            varying vec3 localSurfacePos;
+            void main() {
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+                localSurfacePos = position;
+            }
+        </script>
+
+        <script id="fragment-shader" type="x-shader/x-fragment">
+               precision mediump float;
       
       uniform float time;
       uniform vec3 localCameraPos;
       varying vec3 localSurfacePos;
-
-
-      // Created by David Gallardo - xjorma/2020
-      // License Creative Commons Attribution-NonCommercial-ShareAlike 3.0
-
-
-      const float layerThickness  = 0.02;
-      const int nbLayers    = 3;
-
-
-      float sdTorus( vec3 p, vec2 t )
-      {
-          return length( vec2(length(p.xz)-t.x,p.y) )-t.y;
+      
+      const float blobsize = 0.2;
+      
+      
+      
+      float smoothBlend( float a, float b, float k ){
+          float h = clamp(0.5+0.5*(b-a)/k,0.0,1.0);
+          return mix(b,a,h) - k*h*(1.0-h);
       }
-
-
-      float mySaturate(float c)
-      {
-          return clamp(c,0.,1.);
+      
+      void hardAdd(inout float curD, float newD){
+        curD = min(curD,newD);
       }
-
-
-      vec2 minVecSelect(vec2 a, vec2 b)
-      {
-          return a.x<b.x?a:b;
+      void smoothAdd(inout float curD, float newD, float blendPower){
+          curD = smoothBlend( newD, curD, blendPower );
       }
-
-      float hash( float n )
-      {
-          return fract(sin(n)*43758.5453);
+      
+      
+      float obj_ball(vec3 p, vec3 center, float radius){
+          return length(p-center)-radius;
       }
-
-      float noise( in vec3 x )
-      {
-          vec3 p = floor(x);
-          vec3 f = fract(x);
-
-          f = f*f*(3.0-2.0*f);
-
-          float n = p.x + p.y*57.0 + 113.0*p.z;
-
-          float res = mix(mix(mix( hash(n+  0.0), hash(n+  1.0),f.x),
-                              mix( hash(n+ 57.0), hash(n+ 58.0),f.x),f.y),
-                          mix(mix( hash(n+113.0), hash(n+114.0),f.x),
-                              mix( hash(n+170.0), hash(n+171.0),f.x),f.y),f.z);
-          return res;
+      
+      vec3 blobBallPos(float i){
+          
+          float v = time/1000.0*2.0 + i*100.0;
+          return vec3(
+            sin( v + sin(v*0.8) + sin(v*0.2)*sin(v*2.1) )*blobsize,
+            sin( v + sin(v*0.6) + sin(v*0.4)*sin(v*2.2) )*blobsize,
+            sin( v + sin(v*0.4) + sin(v*0.6)*sin(v*2.3) )*blobsize
+          );
+          
       }
-
-      vec2 map(in vec3 p)
-      {
-          float slide = time / 1000.;
-          float fr = fract(slide);
-          int   fl = int(floor(slide));    
-          vec2  vd = vec2(100., -1.);
-          float cnoise = noise(p * 2. + time / 8000.) / 3.;
-          for( int i = 0; i < nbLayers; i++)
-          {
-              float m = mod(float(i + fl), float(nbLayers));
-              float r = 0.6 - m * layerThickness + ( 1. - fr) * layerThickness;
-              float d = sdTorus( p, vec2(1, r)) ;
-              d = abs(d) - layerThickness / 2.;
-              float o =  - 4. * fract( (time/1000. + float(i)) / float(nbLayers));
-          d = max(d, 1.5 + p.x  + o + cnoise);
-          vd = minVecSelect(vec2(d, float(i)), vd);        
-          }   
-          return vd;
-      }
-
-
-      vec3 calcNormal(vec3 p)
-      {
-          const float h = 0.001;
-          const vec2 k = vec2(1,-1);
-          return normalize( k.xyy * map(p + k.xyy*h).x + 
-                            k.yyx * map(p + k.yyx*h).x + 
-                            k.yxy * map(p + k.yxy*h).x + 
-                            k.xxx * map(p + k.xxx*h).x );
-      }
-
-      // From IQ
-      float calcAO( in vec3 pos, in vec3 nor )
-      {
-        float occ = 0.0;
-          float sca = 1.0;
-          for( int i=0; i<5; i++ )
-          {
-              float hr = 0.01 + 0.12*float(i)/12.0;
-              vec3 aopos =  nor * hr + pos;
-              float dd = map( aopos ).x;
-              occ += -(dd-hr)*sca;
-              sca *= 0.95;
-          }
-          return mySaturate(1.0 - 4. * occ);    
-      }
-
-
-      vec3 Render(vec3 ro,vec3 rd,vec3 cd,float dist)
-      {
-          float t = 0.5;
-          float d;
-          float m = 0.;
-          for( int i=0; i<1024; i++ )
-          {
-              vec3  p = ro + t*rd;
-              vec2  h = map(p);
-              t += h.x*0.7;
-              d = dot(t*rd,cd);
-              m = h.y;
-              if( abs(h.x)<0.0001 || d>dist ) break;
-          }
-
-          vec3 col = vec3(0.3);
-
-          if( d<dist )
-          {
-              vec3 light = vec3(0.,4.,2.);
-              vec3 p = ro + t*rd;
-              vec3 n = calcNormal(p);
-              vec3 v = normalize(ro-p);
-              vec3 l = normalize(light-p);
-              vec3 h = normalize(l+v);
-              
-              vec3 diffcol = normalize(vec3(1. + sin(m * 0.7 + 1.3) / 2., 1. + sin(m * 1.3 + 4.45) / 2., 1. + sin(m * 1.9 + 2.3) / 2.)); 
-              vec3 speccol = vec3(1.,1.,1.);
-              vec3 ambcol = diffcol;
-              float ao = calcAO(p, n);
-              
-              col = mySaturate(dot(n,l)) * diffcol;
-              col+= pow(mySaturate(dot(n,h)),40.) * speccol * 0.5;
-              col+= 0.2 * ambcol;
-              col*= ao;
-          }
-          return col;
-      }
-
-      void mainVR( out vec4 fragColor, in vec3 ro, in vec3 rd )
-      {
-          fragColor = vec4(Render(ro/3. + vec3(0.0,1.0,2.5),rd ,rd,14.) ,1);
-      }
-
-     void main(){
+      
+      float room(vec3 p){
         
-        vec3 rayPos = localSurfacePos;
-        vec3 rayDir = normalize(localSurfacePos-localCameraPos);
-        vec4 color = vec4(0.0);
-        mainVR(color, rayPos, rayDir);
-        gl_FragColor = color;
+        float distance = 9999.9;
+        
+        hardAdd(distance, obj_ball(p, blobBallPos(0.0), blobsize) );
+        for(float i=1.0; i<8.0; i+=1.0){
+          smoothAdd(distance, obj_ball(p, blobBallPos(i), blobsize) , blobsize);
+        }
+        
+        return distance;
         
       }
       
-    </script>
-
-    <a-scene stats background="color: black;">
-      <a-entity position="0 0 0">
-        <a-box position="0 1.65 0" scale="0.25 0.25 0.25" raytrace="shader:#fs; backside:true;"></a-box>
-      </a-entity>
       
-    </a-scene>
-  </body>
+      void main() {
+        
+        
+        vec3 curCameraRayUnit = normalize(localSurfacePos - localCameraPos);
+        
+        
+        // zero optimization done to step size, max iterations, etc..!
+        const vec3 e=vec3(0.02,0,0);
+        const float maxd=40.0; //Max depth
+        vec3 c,p,N;
+        float sA,sP;
+        
+        // march to bg
+        vec3 color=vec3(1.0,1.0,1.0);
+        float f=0.0;
+        float d=0.001;
+        vec3 surfaceColor;
+        for(int i=0;i<64;i++){
+          if ((abs(d) < .001) || (f > maxd)) break;
+          f+=d;
+          p=localCameraPos+curCameraRayUnit*f;
+          d = room(p);
+        }
+        
+        float specA=1.0, specP=8.0;
+        
+        if (f < maxd){
+          
+          vec3 n = vec3(d-room(p-e.xyy),
+                  d-room(p-e.yxy),
+                  d-room(p-e.yyx));
+          N = normalize(n);
+          
+          vec3 L = normalize(vec3(1.0,1.0,1.0)-p);
+          
+          float diffuse=max(dot(N,L),0.0);
+          vec3 H = normalize(L-curCameraRayUnit);
+          float specular = max(dot(H,N),0.0);
+          color = (diffuse*0.8+0.2)*vec3(1.0,0,1.0) + pow(specular,specP)*specA;
+          
+        } else {
+          
+          discard;
+          
+        }
+        
+        gl_FragColor = vec4(color,1.0);
+        
+      }
+        </script>
+
+        <script type="module">
+            import * as THREE from './js/three.module.js';
+            import Stats from './js/stats.module.js';
+            import {VRButton} from './js/VRButton.js';
+            import {OrbitControls} from './js/OrbitControls.js';
+
+            let renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType('local');
+            document.body.appendChild(renderer.domElement);
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            const stats = new Stats();
+            document.body.appendChild(stats.dom);
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const controls = new OrbitControls(camera, renderer.domElement);
+            camera.position.set(0, 0, 0);
+            controls.enablePan = false;
+            controls.enableZoom = false;
+            controls.update();
+
+            const vertexShader = document.getElementById('vertex-shader').textContent;
+            const fragmentShader = document.getElementById('fragment-shader').textContent;
+            const uniforms = {
+                time:{value:0},
+                localCameraPos:{value:new THREE.Vector3(0,0,0)}
+            };
+            const material = new THREE.ShaderMaterial({
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                uniforms,
+                side: THREE.BackSide,
+            });
+
+            var geometry = new THREE.BoxGeometry(5,5,5);
+            const skybox = new THREE.Mesh(geometry, material);
+            skybox.position.set(0.0,0.0,-1.0);
+            scene.add(skybox);
+            skybox.onBeforeRender = function(renderer,scene,camera,geometry,material,group){
+                uniforms.localCameraPos.value.setFromMatrixPosition(camera.matrixWorld);
+                skybox.worldToLocal(uniforms.localCameraPos.value);
+            };
+
+            const onWindowResize = () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            };
+            window.addEventListener('resize', onWindowResize, false);
+
+            renderer.setAnimationLoop((time) => {
+                uniforms.time.value = time;
+
+                // render
+                renderer.render(scene, camera);
+                stats.update();
+            });
+        </script>
+    </body>
 </html>
