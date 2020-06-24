@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-        <title>Virtual Reality Black Hole | Lucas V. Schuermann</title>
+        <title>WebXR VR Raytracer | Lucas V. Schuermann</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
         <style>
@@ -15,7 +15,7 @@
                 overscroll-behavior: none;
             }
             a {
-                color: #ff0;
+                color: #FA0;
                 text-decoration: none;
             }
             a:hover {
@@ -31,12 +31,9 @@
                 padding: 10px;
                 box-sizing: border-box;
                 text-align: center;
-                -moz-user-select: none;
-                -webkit-user-select: none;
-                -ms-user-select: none;
                 user-select: none;
                 pointer-events: none;
-                z-index: 1; /* TODO Solve this in HTML */
+                z-index: 1;
             }
             a, button, input, select {
                 pointer-events: auto;
@@ -45,7 +42,7 @@
     </head>
     <body>
         <div id="info">
-            <a href="/index.html" target="_blank" rel="noopener">Lucas V. Schuermann</a> WebXR Virtual Reality - Schwarzchild Black Hole Simulation
+            <a href="/index.html" target="_blank" rel="noopener">Lucas V. Schuermann</a> - WebXR VR Raytracer
         </div>
         <script id="vertex-shader" type="x-shader/x-vertex">
             precision mediump float;
@@ -84,17 +81,17 @@
             vec3 blobBallPos(float i){
                 float v = time/1000.0*2.0 + i*100.0;
                 return vec3(
-                    sin( v + sin(v*0.8) + sin(v*0.2)*sin(v*2.1) )*BLOBSIZE,
-                    sin( v + sin(v*0.6) + sin(v*0.4)*sin(v*2.2) )*BLOBSIZE,
-                    sin( v + sin(v*0.4) + sin(v*0.6)*sin(v*2.3) )*BLOBSIZE
+                    sin(v + sin(v*0.8) + sin(v*0.2)*sin(v*2.1))*BLOBSIZE,
+                    sin(v + sin(v*0.6) + sin(v*0.4)*sin(v*2.2))*BLOBSIZE,
+                    sin(v + sin(v*0.4) + sin(v*0.6)*sin(v*2.3))*BLOBSIZE
                 );
             }
             
             float room(vec3 p){
                 float distance = 9999.9;
                 hardAdd(distance, obj_ball(p, blobBallPos(0.0), BLOBSIZE) );
-                for(float i=1.0; i<8.0; i+=1.0){
-                    smoothAdd(distance, obj_ball(p, blobBallPos(i), BLOBSIZE) , BLOBSIZE);
+                for(float i=1.0; i<8.0; i+=1.0) {
+                    smoothAdd(distance, obj_ball(p, blobBallPos(i), BLOBSIZE), BLOBSIZE);
                 }
                 return distance;
             }
@@ -147,6 +144,8 @@
             import Stats from './js/stats.module.js';
             import {VRButton} from './js/VRButton.js';
             import {OrbitControls} from './js/OrbitControls.js';
+
+            const SKYBOX_ORIGIN = [0,0,-1];
             
             let renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -160,18 +159,22 @@
             document.body.appendChild(stats.dom);
 
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x808080);
-            const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
+            scene.background = new THREE.Color(0x404040);
+            const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             const controls = new OrbitControls(camera, renderer.domElement);
-            camera.position.set(0, 1.6, 3);
-            controls.target.set(0,0,-1);
+            camera.position.set(0,1.6,3);
+            controls.target.set(...SKYBOX_ORIGIN);
             controls.update();
 
             const vertexShaderSource = document.getElementById('vertex-shader').textContent;
             const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
             const uniforms = {
-                time:{value:0},
-                localCameraPos:{value:new THREE.Vector3(0,0,0)},
+                time: { 
+                    value: 0,
+                },
+                localCameraPos: {
+                    value: new THREE.Vector3(0,0,0),
+                },
             };
             const material = new THREE.ShaderMaterial({
                 vertexShader: vertexShaderSource,
@@ -180,9 +183,9 @@
                 side: THREE.BackSide,
             });
             
-            var geometry = new THREE.BoxGeometry(5,5,5);
+            var geometry = new THREE.BoxGeometry(500,500,500);
             const skybox = new THREE.Mesh(geometry, material);
-            skybox.position.set(0.0,0.0,-1);
+            skybox.position.set(...SKYBOX_ORIGIN);
             scene.add(skybox);
             skybox.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
                 uniforms.localCameraPos.value.setFromMatrixPosition(camera.matrixWorld);
