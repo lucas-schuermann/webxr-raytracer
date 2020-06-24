@@ -272,14 +272,16 @@ vec3 Render(vec3 ro,vec3 rd,vec3 cd,float dist)
 
 void mainVR( out vec4 fragColor, in vec2 fragCoord, in vec3 ro, in vec3 rd )
 {
-    fragColor = vec4(Render(ro/3. + vec3(0.0,.0,4.0),rd ,rd,14.) ,1);
+    fragColor = vec4(Render(ro/3. + vec3(0.0,1.0,2.5),rd ,rd,14.) ,1);
 }
 
 out vec4 outColor;
 void main( void ){
   vec4 color = vec4(0.0,0.0,0.0,1.0);
   vec3 ro = uCorners[4];
-  vec2 uv = (gl_FragCoord.xy - uViewport.xy)/uViewport.zw;vec3 rd = normalize( mix( mix( uCorners[0], uCorners[1], uv.x ),mix( uCorners[3], uCorners[2], uv.x ), uv.y ) - ro);
+  vec2 uv = (gl_FragCoord.xy - uViewport.xy)/uViewport.zw;
+  vec3 rd = normalize( mix( mix( uCorners[0], uCorners[1], uv.x ),
+                       mix( uCorners[3], uCorners[2], uv.x ), uv.y ) - ro);
   mainVR( color, gl_FragCoord.xy-uViewport.xy, ro, rd );
   color.w = 1.0;
   outColor = color;
@@ -424,6 +426,7 @@ void main( void ){
         gl.useProgram(program);
 
         time *= 0.001;  // convert to seconds
+        gl.uniform1f(timeLocation, time);
 
         for (let view of pose.views) {
           let viewport = glLayer.getViewport(view);
@@ -440,27 +443,35 @@ void main( void ){
             // compute view
             const camera = view.transform.inverse.matrix;
 
+            console.log(view.eye, view.transform.inverse.matrix, view.projectionMatrix);
+
             // apply projection
             /*let corA = [ -fov[2], -fov[1], -1.0 ];
             let corB = [  fov[3], -fov[1], -1.0 ];
             let corC = [  fov[3],  fov[0], -1.0 ];
             let corD = [ -fov[2],  fov[0], -1.0 ];
             */
-            const fov = Math.abs(Math.atan(1.0/proj[5])*2);
-            console.log(proj);
-            console.log(fov*180.0/3.14159265358979);
+            //const fov = Math.abs(Math.atan(1.0/proj[5])*2);
+            const fov = 0.8390996311772799;
             let corA = [ -fov, -fov, -1.0 ];
             let corB = [  fov, -fov, -1.0 ];
             let corC = [  fov,  fov, -1.0 ];
             let corD = [ -fov,  fov, -1.0 ];
             let apex = [ 0.0, 0.0, 0.0 ];
 
+            // ???????
+            let c = camera;
+            c = [c[0],c[4],c[8],-c[12],
+                 c[1],c[5],c[9],c[13],
+                 c[2],c[6],c[10],c[14],
+                 c[3],c[7],c[11],c[15],];
+
             // apply view
-            corA = matMulpoint(camera,corA);
-            corB = matMulpoint(camera,corB);
-            corC = matMulpoint(camera,corC);
-            corD = matMulpoint(camera,corD);
-            apex = matMulpoint(camera,apex);
+            corA = matMulpoint(c,corA);
+            corB = matMulpoint(c,corB);
+            corC = matMulpoint(c,corC);
+            corD = matMulpoint(c,corD);
+            apex = matMulpoint(c,apex);
 
             // compute corners
             const corners = [ corA[0], corA[1], corA[2], 
@@ -471,7 +482,6 @@ void main( void ){
 
             // provide to shader
             gl.uniform2f(resolutionLocation, glLayer.framebufferWidth, glLayer.framebufferHeight);
-            gl.uniform1f(timeLocation, time);
             gl.uniform3fv(cornersLocation, corners);
             gl.uniform4fv(viewportLocation, vp);
 
