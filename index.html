@@ -50,7 +50,7 @@
             import {VRButton} from './js/VRButton.js';
             import {OrbitControls} from './js/OrbitControls.js';
 
-            const SKYBOX_ORIGIN = [0,0,-3];
+            const VIEWBOX_ORIGIN = [0,-1.6,-15];
             
             let renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -66,15 +66,21 @@
             const scene = new THREE.Scene();
             const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             const controls = new OrbitControls(camera, renderer.domElement);
-            camera.position.set(0,1.6,3);
-            controls.target.set(...SKYBOX_ORIGIN);
+            controls.target.set(...VIEWBOX_ORIGIN);
             controls.update();
 
-            const texture0 = new THREE.TextureLoader().load('./stars.jpg');
-            texture0.minFilter = THREE.NearestFilter;
-            texture0.magFilter = THREE.NearestFilter;
-            texture0.wrapS = THREE.RepeatWrapping;
-            texture0.wrapT = THREE.RepeatWrapping;
+            // Texture from THREE.js examples
+            // https://github.com/mrdoob/three.js/tree/25d16a2c3c54befcb3916dbe756e051984c532a8/examples/textures/cube/MilkyWay
+            const texturePaths = () => {
+                const path = 'textures/dark-s_';
+                const format = '.jpg';
+                return [
+                    path + 'px' + format, path + 'nx' + format,
+                    path + 'py' + format, path + 'ny' + format,
+                    path + 'pz' + format, path + 'nz' + format
+                ];
+            };
+            const texture0 = new THREE.CubeTextureLoader().load(texturePaths());
 
             const vertexShaderSource = document.getElementById('vertex-shader').textContent;
             const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
@@ -98,7 +104,7 @@
             
             var geometry = new THREE.BoxGeometry(500,500,500);
             const skybox = new THREE.Mesh(geometry, material);
-            skybox.position.set(...SKYBOX_ORIGIN);
+            skybox.position.set(...VIEWBOX_ORIGIN);
             scene.add(skybox);
             skybox.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
                 uniforms.localCameraPos.value.setFromMatrixPosition(camera.matrixWorld);
@@ -136,7 +142,7 @@
             uniform float time;
             uniform vec3 localCameraPos;
             varying vec3 localSurfacePos;
-            uniform sampler2D channel0;
+            uniform samplerCube channel0;
             
             float hash(vec3 p) {
                 p = fract(p * 0.3183099 + 0.1);
@@ -222,7 +228,7 @@
                     p += rd * max(dS, 0.01*(700./64.));
                 }
                 // sample star field
-                vec4 c = vec4(texture2D(channel0, rd.xy).rgb * 0.2, 1.0);
+                vec4 c = vec4(textureCube(channel0, rd).rgb, 1.0);
                 vec4 gcol = getGlow(glow);
                 c.rgb = mix(c.rgb, gcol.rgb, gcol.a);
                 gl_FragColor = c;
