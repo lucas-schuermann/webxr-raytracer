@@ -1,10 +1,10 @@
 # webxr-raytracer
+> [Demo](https://cerrno.github.io/webxr-raytracer/)
+
 A lightweight WebXR GLSL raytracer built for real-time visualization of a black hole in VR
 
-[Demo](https://cerrno.github.io/webxr-raytracer/)
-
 ## Code
-See `index.html`
+See `index.js`
 
 ## Running
 - Tested on Chrome 93 with [WebXR emulator](https://chrome.google.com/webstore/detail/webxr-api-emulator/mjddjgeghkdijejnciaefnkjmkafnnje?hl=en)
