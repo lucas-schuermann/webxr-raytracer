@@ -1,0 +1,21 @@
+{
+    "private": true,
+    "scripts": {
+        "build": "webpack --mode development",
+        "release": "webpack --mode production",
+        "serve-dev": "webpack serve --mode development",
+        "serve": "webpack serve --mode production"
+    },
+    "devDependencies": {
+        "copy-webpack-plugin": "^11.0.0",
+        "html-webpack-plugin": "^5.5",
+        "text-encoding": "^0.7",
+        "webpack": "^5.75",
+        "webpack-cli": "^5.0",
+        "webpack-dev-server": "^4.11"
+    },
+    "dependencies": {
+        "stats.js": "^0.17",
+        "three": "^0.146.0"
+    }
+}
